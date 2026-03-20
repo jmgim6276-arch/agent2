@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.DS_Store
+*.report.json
+agent2_import_report*.json
+.venv/
