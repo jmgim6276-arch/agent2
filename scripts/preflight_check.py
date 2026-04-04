@@ -4,18 +4,61 @@ import requests
 import websocket
 
 BASE_URL = "https://cst.uf-tree.com"
-CDP_PORT = 9223
+
+# 支持的浏览器 CDP 端口
+BROWSERS = [
+    {"name": "Edge", "port": 9223, "url": "http://localhost:9223/json"},
+    {"name": "Chrome", "port": 18800, "url": "http://localhost:18800/json"},
+]
+
+
+def find_browser():
+    """自动检测可用的浏览器，优先返回包含财税通页面的浏览器"""
+    available = []
+    for browser in BROWSERS:
+        try:
+            pages = requests.get(browser["url"], timeout=6).json()
+            # 检查是否有财税通页面
+            has_cst = any("cst.uf-tree.com" in p.get("url", "") for p in pages)
+            available.append({**browser, "has_cst": has_cst})
+        except Exception:
+            continue
+
+    if not available:
+        return None
+
+    # 优先返回有财税通页面的浏览器
+    for b in available:
+        if b["has_cst"]:
+            return b
+
+    # 如果都没有财税通页面，返回第一个可用的
+    return available[0]
 
 
 def get_auth():
-    pages = requests.get(f"http://localhost:{CDP_PORT}/json/list", timeout=10).json()
+    browser = find_browser()
+    if not browser:
+        raise RuntimeError("未检测到可用的浏览器。请按以下步骤操作：\n"
+                          "1. 打开 Edge 浏览器:\n"
+                          "   /Applications/Microsoft\\ Edge.app/Contents/MacOS/Microsoft\\ Edge --remote-debugging-port=9223 --remote-allow-origins=*\n"
+                          "2. 或打开 Chrome 浏览器:\n"
+                          "   /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=18800 --remote-allow-origins=*\n"
+                          "3. 登录 https://cst.uf-tree.com")
+
+    if not browser["has_cst"]:
+        raise RuntimeError(f"{browser['name']} 中未发现财税通页面，请先登录 https://cst.uf-tree.com")
+
+    print(f"✅ 检测到 {browser['name']} 浏览器 (端口 {browser['port']})")
+
+    pages = requests.get(browser["url"], timeout=10).json()
     ws_url = None
     for p in pages:
         if "cst.uf-tree.com" in p.get("url", ""):
             ws_url = p.get("webSocketDebuggerUrl")
             break
     if not ws_url:
-        raise RuntimeError("未找到财税通页面，请先登录并保持 Edge 打开")
+        raise RuntimeError(f"未找到财税通页面（浏览器：{browser['name']}），请先登录并保持浏览器打开")
 
     ws = websocket.create_connection(ws_url, timeout=10, suppress_origin=True)
     ws.send(json.dumps({
